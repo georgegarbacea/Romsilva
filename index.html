@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="ro">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Romsilva — Harta pan (fără zoom) + Top & Profil — auto-load din link</title>
+<link rel="preconnect" href="https://cdn.plot.ly">
+<script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+<style>
+  :root{--bg:#0b1020;--card:#0f172a;--ink:#e5e7eb;--muted:#9ca3af;--ring:#1f2937}
+  *{box-sizing:border-box}
+  body{margin:0;font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(--bg);color:var(--ink)}
+  header{padding:18px 24px;background:#0a0f1f;color:#fff;border-bottom:1px solid #111827}
+  h1{margin:0;font-size:20px}
+  .container{max-width:1500px;margin:0 auto;padding:18px}
+  .controls{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:14px}
+  select,button,input[type=file]{padding:10px 12px;border:1px solid var(--ring);border-radius:12px;background:#0b1223;color:#e5e7eb;cursor:pointer}
+  .layout{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+  .card{background:var(--card);border:1px solid #111827;border-radius:16px;box-shadow:0 10px 30px rgba(0,0,0,.35);padding:12px}
+  .panel{height:760px}
+  .right{display:grid;grid-template-rows:1fr 1fr;gap:18px}
+  .label{font-size:13px;color:var(--muted)}
+  .debug{font-size:13px;color:#cbd5e1}
+  .export-row{margin-top:8px; display:flex; gap:8px}
+  .warn{color:#f59e0b;font-size:13px}
+</style>
+</head>
+<body>
+<header>
+  <h1>Romsilva — Hartă pan (fără zoom) + Top & Profil — auto-load</h1>
+</header>
+
+<div class="container">
+  <div class="controls">
+    <span class="label">Indicator hartă:</span>
+    <select id="metric">
+      <option value="Suprafata_administrata">Suprafață administrată</option>
+      <option value="Profit_ha">Profit / ha</option>
+      <option value="Volum_recoltat">Volum recoltat</option>
+      <option value="Scor_DS">Scor DS</option>
+    </select>
+    <button id="resetSel">Reset selecție județ</button>
+
+    <span class="label" style="margin-left:auto">CSV fallback:</span>
+    <input id="csvInput" type="file" accept=".csv,text/csv" />
+    <span class="label">GeoJSON fallback:</span>
+    <input id="geoInput" type="file" accept=".geojson,.json,application/json" />
+    <span id="hint" class="warn" style="display:none">Dacă nu se încarcă din linkuri, alege fișierele local.</span>
+  </div>
+
+  <div class="layout">
+    <div class="card">
+      <div id="map" class="panel"></div>
+      <div class="export-row"><button id="expMap">Export PNG — Hartă</button></div>
+    </div>
+    <div class="right">
+      <div class="card">
+        <div id="rankbar" style="height:100%"></div>
+        <div class="export-row"><button id="expRank">Export PNG — Top județe</button></div>
+      </div>
+      <div class="card">
+        <div id="profile" style="height:100%"></div>
+        <div class="export-row"><button id="expProfile">Export PNG — Profil județ</button></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:18px">
+    <div id="debugBox" class="debug">Încărc…</div>
+  </div>
+</div>
+
+<script>
+// ====== CONFIG — înlocuiește cu linkurile tale ======
+const CSV_URL     = 'https://raw.githubusercontent.com/USER/REPO/BRANCH/Romsilva_dashboard_minimal.csv'; // sau './Romsilva_dashboard_minimal.csv'
+const GEOJSON_URL = 'https://raw.githubusercontent.com/USER/REPO/BRANCH/ro_judete_poligon.geojson';     // sau './ro_judete_poligon.geojson'
+
+// ===== Utils
+function normName(s){return String(s||"").normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[–—]/g,'-').replace(/\s+/g,' ').trim();}
+function recaseCounty(n){return n.split(/(\-)/).map(p=> p==='-'?'-':(p.charAt(0).toUpperCase()+p.slice(1).toLowerCase())).join('');}
+function extractCounty(ds){
+  let s=String(ds||"").trim(); if(!s) return '';
+  let n=s.normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+  n=n.replace(/^(Directia\s+Silvica|DS|D\.S\.)\s+/i,'').split(/[-,/()]/)[0].trim();
+  if(!n) n=s.normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+  n=recaseCounty(n.replace(/\s+/g,' ').trim());
+  const fixes={'Bistrita':'Bistrita-Nasaud','Caras':'Caras-Severin','Satu mare':'Satu Mare'};
+  if(fixes[n]) n=fixes[n]; return n;
+}
+function parseNumSmart(v){
+  if(v===null||v===undefined) return 0;
+  let s=String(v).trim(); if(!s) return 0; s=s.replace(/\s+/g,'');
+  const hasC=s.includes(','), hasD=s.includes('.');
+  if(hasC&&hasD){ s=(s.lastIndexOf(',')>s.lastIndexOf('.'))?s.replace(/\./g,'').replace(/,/g,'.'):s.replace(/,/g,''); }
+  else if(hasC){ s=s.replace(/\./g,'').replace(/,/g,'.'); }
+  else { s=s.replace(/,/g,''); }
+  const n=Number(s); return isNaN(n)?0:n;
+}
+function detectDelimiter(sample){const c=(sample.match(/,/g)||[]).length,s=(sample.match(/;/g)||[]).length,t=(sample.match(/\t/g)||[]).length;return (s>=c&&s>=t)?';':(t>=c?'\t':',');}
+function parseCSVSmart(text){
+  const first5=text.split(/\r?\n/).slice(0,5).join('\n'); const delim=detectDelimiter(first5);
+  const rows=[]; let cur=[],cell='',inQ=false;
+  for(let i=0;i<text.length;i++){ const ch=text[i],nx=text[i+1];
+    if(inQ){ if(ch=='"'&&nx=='"'){cell+='"';i++;continue;} if(ch=='"'){inQ=false;continue;} cell+=ch; }
+    else{ if(ch=='"'){inQ=true;continue;} if(ch==delim){cur.push(cell);cell='';continue;} if(ch=='\n'){cur.push(cell);rows.push(cur);cur=[];cell='';continue;} if(ch=='\r'){continue;} cell+=ch; } }
+  if(cell.length>0||cur.length>0){cur.push(cell);rows.push(cur);}
+  const rawHeader=rows[0].map(h=>h.trim());
+  const normHeader=rawHeader.map(h=>{let x=h.normalize('NFD').replace(/[\u0300-\u036f]/g,''); x=x.replace(/_/g,' ').replace(/\s+/g,' ').trim().toLowerCase(); x=x.replace(/\s*\/\s*/g,'/'); return x;});
+  const canon={'directia silvica':'Directia Silvica','ds':'Directia Silvica','directia-silvica':'Directia Silvica','suprafata administrata':'Suprafata administrata','suprafata':'Suprafata administrata','profit/ha':'Profit/ha','profit ha':'Profit/ha','volum recoltat':'Volum recoltat','volum':'Volum recoltat','scor ds':'Scor_DS','scor_ds':'Scor_DS','scor':'Scor_DS'};
+  const idx={}; for(let i=0;i<normHeader.length;i++){const h=normHeader[i]; if(canon[h] && idx[canon[h]]===undefined) idx[canon[h]]=i;}
+  const req=['Directia Silvica','Suprafata administrata','Profit/ha','Volum recoltat','Scor_DS'];
+  const miss=req.filter(k=>idx[k]===undefined); if(miss.length) throw new Error('Lipsesc coloane: '+miss.join(', '));
+  const out=[]; for(let r=1;r<rows.length;r++){const arr=rows[r]; if(!arr||arr.every(x=>String(x||'').trim()==='')) continue; const o={}; for(const k of req){const j=idx[k]; o[k]=arr[j]!==undefined?arr[j].trim():'';} out.push(o);} return out;
+}
+function quantizeGeoJSON(gj,decimals=3){
+  let minLon=999,maxLon=-999,minLat=999,maxLat=-999;
+  function consider(x,y){ if(x<minLon)minLon=x; if(x>maxLon)maxLon=x; if(y<minLat)minLat=y; if(y>maxLat)maxLat=y; return [+Number(x).toFixed(decimals),+Number(y).toFixed(decimals)]; }
+  function q(c){ if(Array.isArray(c)){ if(c.length&&Array.isArray(c[0])&&typeof c[0][0]==='number'){ return c.map(([x,y])=>consider(x,y)); } return c.map(q);} return c; }
+  (gj.features||[]).forEach(f=>{const p=f.properties||(f.properties={}); p.name=normName(p.name||p.judet||p.JUDET||p.shapeName||p.NAME_1||p.nume||p.denumire||''); if(f.geometry&&(f.geometry.type==='Polygon'||f.geometry.type==='MultiPolygon')) f.geometry.coordinates=q(f.geometry.coordinates);});
+  gj.__bbox={minLon,maxLon,minLat,maxLat}; return gj;
+}
+
+// ===== State
+let rows=[], geoData=null, selectedJudet=null, firstLoad=true;
+const GREEN_WHITE_RED=[[0,'#b91c1c'],[0.25,'#ef4444'],[0.5,'#ffffff'],[0.75,'#34d399'],[1,'#16a34a']];
+const metricSel=document.getElementById('metric'), debugBox=document.getElementById('debugBox'), hintEl=document.getElementById('hint');
+
+// ===== Loaders (auto + fallback)
+async function autoLoad(){
+  try{
+    const [csvRes, geoRes] = await Promise.all([ fetch(CSV_URL,{cache:'no-store'}), fetch(GEOJSON_URL,{cache:'no-store'}) ]);
+    if(!csvRes.ok) throw new Error('CSV http '+csvRes.status);
+    if(!geoRes.ok) throw new Error('GeoJSON http '+geoRes.status);
+    const [csvText, geoText] = await Promise.all([ csvRes.text(), geoRes.text() ]);
+    const raw = parseCSVSmart(csvText);
+    rows = raw.map(r=>{const ds=r['Directia Silvica'], j=extractCounty(ds); return {
+      Directia_Silvica: ds, Judet: recaseCounty(j), Judet_norm: normName(j),
+      Suprafata_administrata: parseNumSmart(r['Suprafata administrata']),
+      Profit_ha: parseNumSmart(r['Profit/ha']),
+      Volum_recoltat: parseNumSmart(r['Volum recoltat']),
+      Scor_DS: parseNumSmart(r['Scor_DS'])
+    };});
+    geoData = quantizeGeoJSON(JSON.parse(geoText), 3);
+    drawAll(true);
+    debugBox.textContent = 'Încărcat din linkuri.';
+  }catch(e){
+    debugBox.textContent = 'Nu am putut încărca din linkuri: '+e.message+' — folosește fallback (Alege fișiere).';
+    document.getElementById('hint').style.display='inline';
+  }
+}
+autoLoad();
+
+document.getElementById('csvInput').addEventListener('change',ev=>{
+  const f=ev.target.files?.[0]; if(!f) return; const fr=new FileReader();
+  fr.onload=()=>{
+    try{
+      const raw=parseCSVSmart(String(fr.result||'')); 
+      rows=raw.map(r=>{const ds=r['Directia Silvica'], j=extractCounty(ds); return {
+        Directia_Silvica: ds, Judet: recaseCounty(j), Judet_norm: normName(j),
+        Suprafata_administrata: parseNumSmart(r['Suprafata administrata']),
+        Profit_ha: parseNumSmart(r['Profit/ha']),
+        Volum_recoltat: parseNumSmart(r['Volum recoltat']),
+        Scor_DS: parseNumSmart(r['Scor_DS'])
+      };});
+      if(geoData) drawAll(true);
+    }catch(err){ alert('Eroare CSV: '+err.message); }
+  };
+  fr.readAsText(f,'utf-8');
+});
+document.getElementById('geoInput').addEventListener('change',ev=>{
+  const f=ev.target.files?.[0]; if(!f) return; const fr=new FileReader();
+  fr.onload=()=>{
+    try{ geoData=quantizeGeoJSON(JSON.parse(String(fr.result||'')),3); if(rows.length) drawAll(true); }
+    catch(err){ alert('GeoJSON invalid: '+err.message); }
+  };
+  fr.readAsText(f,'utf-8');
+});
+
+// ===== Render
+function drawAll(resetBBox=false){ drawMap(resetBBox); drawRankBar(); drawProfile(); selfTest(); }
+function selfTest(){
+  if(!geoData||!rows.length){ debugBox.textContent='Aștept date…'; return; }
+  const locs=(geoData.features||[]).map(f=>normName(String(f.properties?.name||'')));
+  const haveGeo=new Set(locs), haveData=new Set(rows.map(r=>r.Judet_norm));
+  const matched=rows.map(r=>r.Judet_norm).filter(n=>haveGeo.has(n));
+  const extra=locs.filter(n=>!haveData.has(n));
+  debugBox.innerHTML = `<b>Județe în CSV:</b> ${haveData.size} | <b>în GeoJSON:</b> ${haveGeo.size} | <b>potrivite:</b> ${matched.length}${
+    extra.length?`<br><span style="color:#fbbf24">În GeoJSON fără date: ${extra.slice(0,10).join(', ')}</span>`:''}`;
+}
+
+function drawMap(resetBBox){
+  if(!geoData||!rows.length){ Plotly.purge('map'); return; }
+  const m=metricSel.value;
+  const byName=Object.fromEntries(rows.map(r=>[r.Judet_norm,r]));
+  const locs=(geoData.features||[]).map(f=>normName(String(f.properties?.name||'')));
+  const z=locs.map(n=> byName[n]?.[m] ?? null);
+  const text=locs.map(n=>{ const r=byName[n]; return r?`${r.Judet} — ${(r[m]??'').toLocaleString('ro-RO')}`:'Fără date'; });
+
+  const outline={ type:'choropleth', geojson:geoData, locations:locs, z:locs.map(()=>0), showscale:false,
+    featureidkey:'properties.name', hoverinfo:'skip',
+    marker:{line:{width:0.6,color:'#1f2937'}},
+    colorscale:[[0,'#111827'],[1,'#111827']], opacity:0.6 };
+
+  const main={ type:'choropleth', geojson:geoData, locations:locs, z, text,
+    featureidkey:'properties.name',
+    colorscale: [[0,'#b91c1c'],[0.25,'#ef4444'],[0.5,'#ffffff'],[0.75,'#34d399'],[1,'#16a34a']],
+    marker:{line:{width:0.5,color:'#0b1020'}}, hoverinfo:'text',
+    colorbar:{title:m.replace('_',' '), thickness:16, len:0.9, x:1.02, y:0.5, xpad:6, outlinewidth:0} };
+
+  const bb=geoData.__bbox||{minLon:20,maxLon:30,minLat:43,maxLat:49}, padLon=0.6, padLat=0.6;
+
+  const layout={ margin:{l:8,r:70,t:4,b:4},
+    geo:{ visible:true, showframe:false, showcoastlines:false, bgcolor:'#0b1020',
+          projection:{type:'mercator'},
+          lonaxis:{range:[bb.minLon-padLon, bb.maxLon+padLon]},
+          lataxis:{range:[bb.minLat-padLat, bb.maxLat+padLat]} },
+    hovermode:'closest',
+    paper_bgcolor:'#0b1020', plot_bgcolor:'#0b1020',
+    uirevision:'keep'
+  };
+
+  // pan DA, zoom NU — păstrăm pan-ul curent între schimbări
+  const cfg={ responsive:true, displayModeBar:false, scrollZoom:false, doubleClick:false };
+  if(!drawMap._inited || resetBBox){
+    Plotly.newPlot('map',[outline,main],layout,cfg).then(()=>{ drawMap._inited=true; });
+  }else{
+    const gd=document.getElementById('map'); const gl=gd? gd._fullLayout?.geo : null;
+    if(gl?.lonaxis?.range && gl?.lataxis?.range){
+      layout.geo.lonaxis.range = gl.lonaxis.range.slice();
+      layout.geo.lataxis.range = gl.lataxis.range.slice();
+    }
+    Plotly.react('map',[outline,main],layout,cfg);
+  }
+
+  document.getElementById('map').on('plotly_click',ev=>{
+    const loc=ev.points?.[0]?.location; if(!loc) return;
+    const rec=rows.find(r=>r.Judet_norm===loc); selectedJudet=rec?rec.Judet:null;
+    drawRankBar(); drawProfile();
+  });
+}
+
+function drawRankBar(){
+  if(!rows.length){ Plotly.purge('rankbar'); return; }
+  const m=metricSel.value;
+  const sorted=[...rows].sort((a,b)=>(b[m]??-Infinity)-(a[m]??-Infinity));
+  Plotly.react('rankbar',[{
+    type:'bar', orientation:'h',
+    y:sorted.map(r=>r.Judet),
+    x:sorted.map(r=>r[m]),
+    text:sorted.map(r=>(r[m]??'').toLocaleString('ro-RO')),
+    textposition:'auto',
+    marker:{ color:sorted.map(r=>(selectedJudet&&r.Judet===selectedJudet)?'#f59e0b':'#6366f1') }
+  }],{
+    margin:{l:140,r:20,t:10,b:30},
+    xaxis:{title:m.replace('_',' ')},
+    paper_bgcolor:'#0f172a', plot_bgcolor:'#0f172a',
+    uirevision:'keep'
+  }, {responsive:true});
+
+  document.getElementById('rankbar').on('plotly_click',ev=>{
+    const jd=ev.points?.[0]?.y; if(!jd) return;
+    selectedJudet=jd; drawProfile(); drawMap(false);
+  });
+}
+
+function drawProfile(){
+  if(!rows.length){ Plotly.purge('profile'); return; }
+  const r=selectedJudet?rows.find(x=>x.Judet===selectedJudet):null;
+  const title=r?`Profil indicatori — ${r.Judet}`:'Profil indicatori — selectează un județ';
+  const x=['Suprafață administrată','Profit / ha','Volum recoltat','Scor DS'];
+  const y=r?[r.Suprafata_administrata,r.Profit_ha,r.Volum_recoltat,r.Scor_DS]:[0,0,0,0];
+  Plotly.react('profile',[{
+    type:'bar', x, y,
+    text:y.map(v=>(v??'').toLocaleString('ro-RO')), textposition:'auto',
+    marker:{color:['#22c55e','#f59e0b','#22d3ee','#a78bfa']}
+  }],{
+    title, yaxis:{title:'Valoare'},
+    margin:{l:60,r:20,t:40,b:60},
+    paper_bgcolor:'#0f172a', plot_bgcolor:'#0f172a',
+    uirevision:'keep'
+  }, {responsive:true});
+}
+
+// Export PNG
+function exportPng(id,name){
+  Plotly.downloadImage(document.getElementById(id), {format:'png', width:1200, height:800, filename:name})
+    .catch(e=>alert('Export PNG: '+e.message));
+}
+document.getElementById('expMap').addEventListener('click',()=>exportPng('map','harta_romsilva'));
+document.getElementById('expRank').addEventListener('click',()=>exportPng('rankbar','top_judete'));
+document.getElementById('expProfile').addEventListener('click',()=>exportPng('profile','profil_judet'));
+
+// UI
+document.getElementById('resetSel').addEventListener('click',()=>{ selectedJudet=null; drawRankBar(); drawProfile(); drawMap(true); });
+metricSel.addEventListener('change',()=>{ selectedJudet=null; drawAll(false); });
+</script>
+</body>
+</html>
