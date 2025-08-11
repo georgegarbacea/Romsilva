@@ -3,9 +3,9 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Romsilva — Harta pan (fără zoom) + Top & Profil — auto-load din link</title>
-<link rel="preconnect" href="https://cdn.plot.ly">
-<script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+<title>Romsilva — Hartă pan (fără zoom) + Top & Profil</title>
+<!-- Plotly local din repo -->
+<script src="plotly-2.35.2.min.js"></script>
 <style>
   :root{--bg:#0b1020;--card:#0f172a;--ink:#e5e7eb;--muted:#9ca3af;--ring:#1f2937}
   *{box-sizing:border-box}
@@ -14,7 +14,7 @@
   h1{margin:0;font-size:20px}
   .container{max-width:1500px;margin:0 auto;padding:18px}
   .controls{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:14px}
-  select,button,input[type=file]{padding:10px 12px;border:1px solid var(--ring);border-radius:12px;background:#0b1223;color:#e5e7eb;cursor:pointer}
+  select,button{padding:10px 12px;border:1px solid var(--ring);border-radius:12px;background:#0b1223;color:#e5e7eb;cursor:pointer}
   .layout{display:grid;grid-template-columns:1fr 1fr;gap:18px}
   .card{background:var(--card);border:1px solid #111827;border-radius:16px;box-shadow:0 10px 30px rgba(0,0,0,.35);padding:12px}
   .panel{height:760px}
@@ -22,12 +22,11 @@
   .label{font-size:13px;color:var(--muted)}
   .debug{font-size:13px;color:#cbd5e1}
   .export-row{margin-top:8px; display:flex; gap:8px}
-  .warn{color:#f59e0b;font-size:13px}
 </style>
 </head>
 <body>
 <header>
-  <h1>Romsilva — Hartă pan (fără zoom) + Top & Profil — auto-load</h1>
+  <h1>Romsilva — Hartă pan (fără zoom) + Top & Profil</h1>
 </header>
 
 <div class="container">
@@ -40,12 +39,6 @@
       <option value="Scor_DS">Scor DS</option>
     </select>
     <button id="resetSel">Reset selecție județ</button>
-
-    <span class="label" style="margin-left:auto">CSV fallback:</span>
-    <input id="csvInput" type="file" accept=".csv,text/csv" />
-    <span class="label">GeoJSON fallback:</span>
-    <input id="geoInput" type="file" accept=".geojson,.json,application/json" />
-    <span id="hint" class="warn" style="display:none">Dacă nu se încarcă din linkuri, alege fișierele local.</span>
   </div>
 
   <div class="layout">
@@ -66,16 +59,16 @@
   </div>
 
   <div class="card" style="margin-top:18px">
-    <div id="debugBox" class="debug">Încărc…</div>
+    <div id="debugBox" class="debug">Încarc din repo…</div>
   </div>
 </div>
 
 <script>
-// ====== CONFIG — înlocuiește cu linkurile tale ======
-const CSV_URL     = 'https://raw.githubusercontent.com/USER/REPO/BRANCH/Romsilva_dashboard_minimal.csv'; // sau './Romsilva_dashboard_minimal.csv'
-const GEOJSON_URL = 'https://raw.githubusercontent.com/USER/REPO/BRANCH/ro_judete_poligon.geojson';     // sau './ro_judete_poligon.geojson'
+// ---- URL-urile relative din repo (root)
+const CSV_URL     = './Romsilva_dashboard_minimal.csv';
+const GEOJSON_URL = './ro_judete_poligon.json';
 
-// ===== Utils
+// ---- Utils
 function normName(s){return String(s||"").normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[–—]/g,'-').replace(/\s+/g,' ').trim();}
 function recaseCounty(n){return n.split(/(\-)/).map(p=> p==='-'?'-':(p.charAt(0).toUpperCase()+p.slice(1).toLowerCase())).join('');}
 function extractCounty(ds){
@@ -120,17 +113,15 @@ function quantizeGeoJSON(gj,decimals=3){
   gj.__bbox={minLon,maxLon,minLat,maxLat}; return gj;
 }
 
-// ===== State
-let rows=[], geoData=null, selectedJudet=null, firstLoad=true;
+// ---- State
+let rows=[], geoData=null, selectedJudet=null;
 const GREEN_WHITE_RED=[[0,'#b91c1c'],[0.25,'#ef4444'],[0.5,'#ffffff'],[0.75,'#34d399'],[1,'#16a34a']];
-const metricSel=document.getElementById('metric'), debugBox=document.getElementById('debugBox'), hintEl=document.getElementById('hint');
+const metricSel=document.getElementById('metric'), debugBox=document.getElementById('debugBox');
 
-// ===== Loaders (auto + fallback)
-async function autoLoad(){
+// ---- Auto-load din repo
+(async ()=>{
   try{
     const [csvRes, geoRes] = await Promise.all([ fetch(CSV_URL,{cache:'no-store'}), fetch(GEOJSON_URL,{cache:'no-store'}) ]);
-    if(!csvRes.ok) throw new Error('CSV http '+csvRes.status);
-    if(!geoRes.ok) throw new Error('GeoJSON http '+geoRes.status);
     const [csvText, geoText] = await Promise.all([ csvRes.text(), geoRes.text() ]);
     const raw = parseCSVSmart(csvText);
     rows = raw.map(r=>{const ds=r['Directia Silvica'], j=extractCounty(ds); return {
@@ -140,53 +131,16 @@ async function autoLoad(){
       Volum_recoltat: parseNumSmart(r['Volum recoltat']),
       Scor_DS: parseNumSmart(r['Scor_DS'])
     };});
-    geoData = quantizeGeoJSON(JSON.parse(geoText), 3);
+    geoData = quantizeGeoJSON(JSON.parse(geoText),3);
     drawAll(true);
-    debugBox.textContent = 'Încărcat din linkuri.';
+    debugBox.textContent='Încărcat din repo.';
   }catch(e){
-    debugBox.textContent = 'Nu am putut încărca din linkuri: '+e.message+' — folosește fallback (Alege fișiere).';
-    document.getElementById('hint').style.display='inline';
+    debugBox.textContent='Eroare încărcare: '+e.message;
   }
-}
-autoLoad();
+})();
 
-document.getElementById('csvInput').addEventListener('change',ev=>{
-  const f=ev.target.files?.[0]; if(!f) return; const fr=new FileReader();
-  fr.onload=()=>{
-    try{
-      const raw=parseCSVSmart(String(fr.result||'')); 
-      rows=raw.map(r=>{const ds=r['Directia Silvica'], j=extractCounty(ds); return {
-        Directia_Silvica: ds, Judet: recaseCounty(j), Judet_norm: normName(j),
-        Suprafata_administrata: parseNumSmart(r['Suprafata administrata']),
-        Profit_ha: parseNumSmart(r['Profit/ha']),
-        Volum_recoltat: parseNumSmart(r['Volum recoltat']),
-        Scor_DS: parseNumSmart(r['Scor_DS'])
-      };});
-      if(geoData) drawAll(true);
-    }catch(err){ alert('Eroare CSV: '+err.message); }
-  };
-  fr.readAsText(f,'utf-8');
-});
-document.getElementById('geoInput').addEventListener('change',ev=>{
-  const f=ev.target.files?.[0]; if(!f) return; const fr=new FileReader();
-  fr.onload=()=>{
-    try{ geoData=quantizeGeoJSON(JSON.parse(String(fr.result||'')),3); if(rows.length) drawAll(true); }
-    catch(err){ alert('GeoJSON invalid: '+err.message); }
-  };
-  fr.readAsText(f,'utf-8');
-});
-
-// ===== Render
-function drawAll(resetBBox=false){ drawMap(resetBBox); drawRankBar(); drawProfile(); selfTest(); }
-function selfTest(){
-  if(!geoData||!rows.length){ debugBox.textContent='Aștept date…'; return; }
-  const locs=(geoData.features||[]).map(f=>normName(String(f.properties?.name||'')));
-  const haveGeo=new Set(locs), haveData=new Set(rows.map(r=>r.Judet_norm));
-  const matched=rows.map(r=>r.Judet_norm).filter(n=>haveGeo.has(n));
-  const extra=locs.filter(n=>!haveData.has(n));
-  debugBox.innerHTML = `<b>Județe în CSV:</b> ${haveData.size} | <b>în GeoJSON:</b> ${haveGeo.size} | <b>potrivite:</b> ${matched.length}${
-    extra.length?`<br><span style="color:#fbbf24">În GeoJSON fără date: ${extra.slice(0,10).join(', ')}</span>`:''}`;
-}
+// ---- Render
+function drawAll(resetBBox=false){ drawMap(resetBBox); drawRankBar(); drawProfile(); }
 
 function drawMap(resetBBox){
   if(!geoData||!rows.length){ Plotly.purge('map'); return; }
@@ -198,12 +152,10 @@ function drawMap(resetBBox){
 
   const outline={ type:'choropleth', geojson:geoData, locations:locs, z:locs.map(()=>0), showscale:false,
     featureidkey:'properties.name', hoverinfo:'skip',
-    marker:{line:{width:0.6,color:'#1f2937'}},
-    colorscale:[[0,'#111827'],[1,'#111827']], opacity:0.6 };
+    marker:{line:{width:0.6,color:'#1f2937'}}, colorscale:[[0,'#111827'],[1,'#111827']], opacity:0.6 };
 
   const main={ type:'choropleth', geojson:geoData, locations:locs, z, text,
-    featureidkey:'properties.name',
-    colorscale: [[0,'#b91c1c'],[0.25,'#ef4444'],[0.5,'#ffffff'],[0.75,'#34d399'],[1,'#16a34a']],
+    featureidkey:'properties.name', colorscale:GREEN_WHITE_RED,
     marker:{line:{width:0.5,color:'#0b1020'}}, hoverinfo:'text',
     colorbar:{title:m.replace('_',' '), thickness:16, len:0.9, x:1.02, y:0.5, xpad:6, outlinewidth:0} };
 
@@ -218,9 +170,8 @@ function drawMap(resetBBox){
     paper_bgcolor:'#0b1020', plot_bgcolor:'#0b1020',
     uirevision:'keep'
   };
-
-  // pan DA, zoom NU — păstrăm pan-ul curent între schimbări
   const cfg={ responsive:true, displayModeBar:false, scrollZoom:false, doubleClick:false };
+
   if(!drawMap._inited || resetBBox){
     Plotly.newPlot('map',[outline,main],layout,cfg).then(()=>{ drawMap._inited=true; });
   }else{
