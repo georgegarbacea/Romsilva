@@ -17,6 +17,9 @@
   .container{max-width:1500px;margin:0 auto;padding:18px}
   .controls{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:14px}
   select,button{padding:10px 12px;border:1px solid var(--ring);border-radius:12px;background:#0b1223;color:#e5e7eb;cursor:pointer}
+  .quick{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  .quick .qbtn{border:1px solid #334;padding:8px 10px;border-radius:10px;background:#111;color:#e5e7eb}
+  .quick .qbtn.active{outline:2px solid #6366f1}
   .layout{display:grid;grid-template-columns:1fr 1fr;gap:18px}
   .card{background:var(--card);border:1px solid #111827;border-radius:16px;box-shadow:0 10px 30px rgba(0,0,0,.35);padding:12px}
   .panel{height:72vh} /* desktop: hartă mare */
@@ -32,7 +35,7 @@
     .layout{grid-template-columns:1fr}     /* o coloană */
     .panel{height:55vh}                    /* harta ~jumătate ecran */
     .right{grid-template-rows:auto auto}
-    #rankbar, #profile{height:46vh}        /* grafice ~jumătate ecran */
+    #rankbar, #profile{height:46vh}        /* grafice ~jumătate ecran fiecare */
     .controls{gap:8px}
     select,button{padding:8px 10px}
   }
@@ -52,7 +55,16 @@
       <option value="Volum_recoltat">Volum recoltat</option>
       <option value="Scor_DS">Scor DS</option>
     </select>
-    <button id="resetSel">Reset selecție județ</button>
+
+    <!-- Butoane rapide în dreptul selectorului -->
+    <div class="quick" id="quickBtns">
+      <button class="qbtn" data-m="Suprafata_administrata">Suprafață</button>
+      <button class="qbtn" data-m="Profit_ha">Profit/ha</button>
+      <button class="qbtn" data-m="Volum_recoltat">Volum</button>
+      <button class="qbtn" data-m="Scor_DS">Scor</button>
+    </div>
+
+    <button id="resetSel" style="margin-left:auto">Reset selecție județ</button>
   </div>
 
   <div class="layout">
@@ -229,9 +241,8 @@ function drawMap(resetBBox){
   const cbLen = isMobile ? 0.7 : 0.9;     // lungimea colorbar fixă
   const cbThick = isMobile ? 12 : 16;
 
-  // Colorbar: titlul SUS, centrat, poziție fixă
+  // Colorbar fără titlu (nu mai influențează layoutul)
   const colorbar = {
-    title: { text: m.replace('_',' '), side: 'top', font:{size:isMobile?11:12, color:'#e5e7eb'} },
     thickness: cbThick, len: cbLen,
     x: 1.02, y: 0.5, xanchor:'left', yanchor:'middle',
     outlinewidth: 0, tickfont:{size:isMobile?10:11, color:'#cbd5e1'}
@@ -333,7 +344,25 @@ document.getElementById('expProfile').addEventListener('click',()=>exportPng('pr
 
 // ---------- UI ----------
 document.getElementById('resetSel').addEventListener('click',()=>{ selectedJudet=null; drawRankBar(); drawProfile(); drawMap(true); });
-metricSel.addEventListener('change',()=>{ selectedJudet=null; drawAll(false); });
+metricSel.addEventListener('change',()=>{ selectedJudet=null; syncQuick(); drawAll(false); });
+
+// Butoane rapide – setare indicator + sincronizare cu dropdown
+const quick = document.getElementById('quickBtns');
+quick.addEventListener('click', (e)=>{
+  const btn = e.target.closest('.qbtn'); if(!btn) return;
+  const m = btn.getAttribute('data-m');
+  metricSel.value = m;
+  syncQuick();
+  selectedJudet=null; drawAll(false);
+});
+function syncQuick(){
+  const m = metricSel.value;
+  quick.querySelectorAll('.qbtn').forEach(b=>{
+    b.classList.toggle('active', b.getAttribute('data-m')===m);
+  });
+}
+// inițial
+syncQuick();
 
 // Redesenare la rotație/resize pe mobil (debounce)
 let resizeTO=null;
@@ -344,5 +373,3 @@ window.addEventListener('resize', ()=>{
 </script>
 </body>
 </html>
-
-
