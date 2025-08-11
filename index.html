@@ -56,7 +56,7 @@
       <option value="Scor_DS">Scor DS</option>
     </select>
 
-    <!-- Butoane rapide în dreptul selectorului -->
+    <!-- Butoane rapide -->
     <div class="quick" id="quickBtns">
       <button class="qbtn" data-m="Suprafata_administrata">Suprafață</button>
       <button class="qbtn" data-m="Profit_ha">Profit/ha</button>
@@ -256,9 +256,11 @@ function drawMap(resetBBox){
     marker:{ line:{ width:1.2, color:'#0f172a' } }, opacity:1
   };
 
+  // ---- alb exact la 0 doar pentru Profit/ha: folosim zmid:0
   const main = {
     type:'choropleth', geojson: geoData, locations: locs,
-    z, zmin, zmax, text, featureidkey:'properties.name',
+    z, zmin, zmax, ...(m==='Profit_ha'?{zmid:0}:{ }),
+    text, featureidkey:'properties.name',
     colorscale: COLORSCALE_GWR,
     marker:{ line:{ width:0.8, color:'#0b1020' } },
     hoverinfo:'text', hoverlabel: isMobile ? {font:{size:10}} : {font:{size:12}},
