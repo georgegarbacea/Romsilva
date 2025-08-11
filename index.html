@@ -19,11 +19,23 @@
   select,button{padding:10px 12px;border:1px solid var(--ring);border-radius:12px;background:#0b1223;color:#e5e7eb;cursor:pointer}
   .layout{display:grid;grid-template-columns:1fr 1fr;gap:18px}
   .card{background:var(--card);border:1px solid #111827;border-radius:16px;box-shadow:0 10px 30px rgba(0,0,0,.35);padding:12px}
-  .panel{height:760px}
+  .panel{height:72vh} /* desktop: hartă mare */
   .right{display:grid;grid-template-rows:1fr 1fr;gap:18px}
   .label{font-size:13px;color:var(--muted)}
   .debug{font-size:13px;color:#cbd5e1}
-  .export-row{margin-top:8px; display:flex; gap:8px}
+  .export-row{margin-top:8px; display:flex; gap:8px; flex-wrap:wrap}
+
+  /* ====== Mobile: sub 980px ====== */
+  @media (max-width: 980px){
+    h1{font-size:18px}
+    .container{padding:12px}
+    .layout{grid-template-columns:1fr}     /* o singură coloană */
+    .panel{height:55vh}                    /* harta ~jumătate ecran */
+    .right{grid-template-rows:auto auto}
+    #rankbar, #profile{height:46vh}        /* grafice ~jumătate ecran fiecare */
+    .controls{gap:8px}
+    select,button{padding:8px 10px}
+  }
 </style>
 </head>
 <body>
@@ -213,6 +225,10 @@ function drawMap(resetBBox){
   });
 
   // 3) contur + strat principal
+  const isMobile = window.innerWidth <= 980;
+  const cbLen = isMobile ? 0.7 : 0.9;         // scurtăm bara de culori pe mobil
+  const cbThick = isMobile ? 12 : 16;
+
   const outline = {
     type:'choropleth',
     geojson: geoData,
@@ -236,12 +252,13 @@ function drawMap(resetBBox){
     colorscale: COLORSCALE_GWR,
     marker:{ line:{ width:0.8, color:'#0b1020' } },
     hoverinfo:'text',
-    colorbar:{ title:m.replace('_',' '), thickness:16, len:0.9, x:1.02, y:0.5, xpad:6, outlinewidth:0 }
+    hoverlabel: isMobile ? {font:{size:10}} : {font:{size:12}},
+    colorbar:{ title:m.replace('_',' '), thickness:cbThick, len:cbLen, x:1.02, y:0.5, xpad:6, outlinewidth:0 }
   };
 
   // 4) încadrăm robust pe locații
   const layout = {
-    margin:{l:8,r:70,t:4,b:4},
+    margin: isMobile ? {l:6,r:42,t:4,b:4} : {l:8,r:70,t:4,b:4},
     geo:{
       visible:true, showframe:false, showcoastlines:false, bgcolor:'#0b1020',
       projection:{type:'mercator'},
@@ -322,7 +339,15 @@ document.getElementById('expProfile').addEventListener('click',()=>exportPng('pr
 // ---------- UI ----------
 document.getElementById('resetSel').addEventListener('click',()=>{ selectedJudet=null; drawRankBar(); drawProfile(); drawMap(true); });
 metricSel.addEventListener('change',()=>{ selectedJudet=null; drawAll(false); });
+
+// Redesenare la rotație/resize pe mobil (debounce)
+let resizeTO=null;
+window.addEventListener('resize', ()=>{
+  clearTimeout(resizeTO);
+  resizeTO = setTimeout(()=>{ drawMap(true); drawRankBar(); drawProfile(); }, 150);
+});
 </script>
 </body>
 </html>
+
 
