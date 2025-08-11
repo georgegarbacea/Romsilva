@@ -29,10 +29,10 @@
   @media (max-width: 980px){
     h1{font-size:18px}
     .container{padding:12px}
-    .layout{grid-template-columns:1fr}     /* o singură coloană */
+    .layout{grid-template-columns:1fr}     /* o coloană */
     .panel{height:55vh}                    /* harta ~jumătate ecran */
     .right{grid-template-rows:auto auto}
-    #rankbar, #profile{height:46vh}        /* grafice ~jumătate ecran fiecare */
+    #rankbar, #profile{height:46vh}        /* grafice ~jumătate ecran */
     .controls{gap:8px}
     select,button{padding:8px 10px}
   }
@@ -224,46 +224,41 @@ function drawMap(resetBBox){
     return r ? `${r.Judet} — ${ (v??0).toLocaleString('ro-RO',{maximumFractionDigits:3}) }` : 'Fără date';
   });
 
-  // 3) contur + strat principal
+  // 3) mobile tweaks
   const isMobile = window.innerWidth <= 980;
-  const cbLen = isMobile ? 0.7 : 0.9;         // scurtăm bara de culori pe mobil
+  const cbLen = isMobile ? 0.7 : 0.9;     // lungimea colorbar fixă
   const cbThick = isMobile ? 12 : 16;
 
+  // Colorbar: titlul SUS, centrat, poziție fixă
+  const colorbar = {
+    title: { text: m.replace('_',' '), side: 'top', font:{size:isMobile?11:12, color:'#e5e7eb'} },
+    thickness: cbThick, len: cbLen,
+    x: 1.02, y: 0.5, xanchor:'left', yanchor:'middle',
+    outlinewidth: 0, tickfont:{size:isMobile?10:11, color:'#cbd5e1'}
+  };
+
+  // contur + strat principal
   const outline = {
-    type:'choropleth',
-    geojson: geoData,
-    locations: locs,
-    z: locs.map(()=>0),
-    showscale:false,
-    featureidkey:'properties.name',
-    hoverinfo:'skip',
-    colorscale:[[0,'#0b1020'],[1,'#0b1020']],
-    marker:{ line:{ width:1.2, color:'#0f172a' } },
-    opacity:1
+    type:'choropleth', geojson: geoData, locations: locs,
+    z: locs.map(()=>0), showscale:false, featureidkey:'properties.name',
+    hoverinfo:'skip', colorscale:[[0,'#0b1020'],[1,'#0b1020']],
+    marker:{ line:{ width:1.2, color:'#0f172a' } }, opacity:1
   };
 
   const main = {
-    type:'choropleth',
-    geojson: geoData,
-    locations: locs,
-    z, zmin, zmax,
-    text,
-    featureidkey:'properties.name',
+    type:'choropleth', geojson: geoData, locations: locs,
+    z, zmin, zmax, text, featureidkey:'properties.name',
     colorscale: COLORSCALE_GWR,
     marker:{ line:{ width:0.8, color:'#0b1020' } },
-    hoverinfo:'text',
-    hoverlabel: isMobile ? {font:{size:10}} : {font:{size:12}},
-    colorbar:{ title:m.replace('_',' '), thickness:cbThick, len:cbLen, x:1.02, y:0.5, xpad:6, outlinewidth:0 }
+    hoverinfo:'text', hoverlabel: isMobile ? {font:{size:10}} : {font:{size:12}},
+    colorbar: colorbar
   };
 
   // 4) încadrăm robust pe locații
   const layout = {
     margin: isMobile ? {l:6,r:42,t:4,b:4} : {l:8,r:70,t:4,b:4},
-    geo:{
-      visible:true, showframe:false, showcoastlines:false, bgcolor:'#0b1020',
-      projection:{type:'mercator'},
-      fitbounds:'locations'
-    },
+    geo:{ visible:true, showframe:false, showcoastlines:false, bgcolor:'#0b1020',
+      projection:{type:'mercator'}, fitbounds:'locations' },
     hovermode:'closest',
     paper_bgcolor:'#0b1020', plot_bgcolor:'#0b1020',
     uirevision:'keep'
@@ -349,5 +344,3 @@ window.addEventListener('resize', ()=>{
 </script>
 </body>
 </html>
-
-
