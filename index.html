@@ -227,20 +227,30 @@ function drawMap(resetBBox){
   // 2) valori + domeniu
   const z = locs.map(n => (byName[n] ? byName[n][m] : null));
   const valid = z.filter(v => typeof v==='number' && isFinite(v));
-  const zmin = valid.length ? Math.min(...valid) : 0;
-  const zmax = valid.length ? Math.max(...valid) : 1;
+  const zminRaw = valid.length ? Math.min(...valid) : 0;
+  const zmaxRaw = valid.length ? Math.max(...valid) : 1;
+
+  // Domeniu pentru colorare:
+  // - pentru Profit/ha -> domeniu simetric [-M, +M] ca să fie ALB la 0
+  // - pentru restul -> domeniu real [min, max]
+  let cmin = zminRaw, cmax = zmaxRaw;
+  if (m === 'Profit_ha') {
+    const M = Math.max(Math.abs(zminRaw), Math.abs(zmaxRaw)) || 1;
+    cmin = -M;
+    cmax = +M;
+  }
 
   const text = locs.map(n => {
     const r=byName[n], v=(r? r[m] : null);
     return r ? `${r.Judet} — ${(v??0).toLocaleString('ro-RO',{maximumFractionDigits:3})}` : 'Fără date';
   });
 
-  // 3) setări mobile + colorbar (fără titlu)
+  // 3) mobile tweaks
   const isMobile = window.innerWidth <= 980;
   const cbLen = isMobile ? 0.7 : 0.9;
   const cbThick = isMobile ? 12 : 16;
 
-  // 4) trasă de contur
+  // 4) contur
   const outline = {
     type:'choropleth', geojson: geoData, locations: locs,
     z: locs.map(()=>0), showscale:false, featureidkey:'properties.name',
@@ -248,7 +258,7 @@ function drawMap(resetBBox){
     marker:{ line:{ width:1.2, color:'#0f172a' } }, opacity:1
   };
 
-  // 5) trasă principală legată la un coloraxis
+  // 5) trasă principală cu coloraxis
   const main = {
     type:'choropleth',
     geojson: geoData,
@@ -258,10 +268,10 @@ function drawMap(resetBBox){
     marker:{ line:{ width:0.8, color:'#0b1020' } },
     hoverinfo:'text',
     hoverlabel: isMobile ? {font:{size:10}} : {font:{size:12}},
-    coloraxis:'coloraxis'             // <-- important
+    coloraxis:'coloraxis'
   };
 
-  // 6) layout + coloraxis (cu cmid:0 doar pentru Profit/ha)
+  // 6) layout + coloraxis (fără titlu; domeniu cmin/cmax setat mai sus)
   const layout = {
     margin: isMobile ? {l:6,r:42,t:4,b:4} : {l:8,r:70,t:4,b:4},
     geo:{ visible:true, showframe:false, showcoastlines:false, bgcolor:'#0b1020',
@@ -271,10 +281,7 @@ function drawMap(resetBBox){
     uirevision:'keep',
     coloraxis: {
       colorscale: COLORSCALE_GWR,
-      cmin: zmin,
-      cmax: zmax,
-      // centrează ALB la 0 numai dacă domeniul trece prin 0 și indicatorul e Profit/ha
-      ...(m==='Profit_ha' && zmin < 0 && zmax > 0 ? { cmid: 0 } : {}),
+      cmin, cmax,                 // <- simetric pt Profit/ha, real pt ceilalți
       colorbar: {
         thickness: cbThick, len: cbLen,
         x: 1.02, y: 0.5, xanchor:'left', yanchor:'middle',
@@ -283,7 +290,6 @@ function drawMap(resetBBox){
     }
   };
 
-  // Pan DA, zoom NU
   const cfg = { responsive:true, displayModeBar:false, scrollZoom:false, doubleClick:false };
 
   if(!drawMap._inited || resetBBox){
@@ -298,7 +304,6 @@ function drawMap(resetBBox){
     drawRankBar(); drawProfile();
   });
 }
-
 
 function drawRankBar(){
   if(!rows.length){ Plotly.purge('rankbar'); return; }
@@ -382,4 +387,5 @@ window.addEventListener('resize', ()=>{
 </script>
 </body>
 </html>
+
 
