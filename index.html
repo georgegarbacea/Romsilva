@@ -215,17 +215,16 @@ function drawMap(resetBBox){
   if(!geoData||!rows.length){ Plotly.purge('map'); return; }
   const m = metricSel.value;
 
-  // 1) normalizăm identic și ne asigurăm că properties.name e cheia
+  // 1) normalizăm numele pt. potrivire
   const locs = (geoData.features||[]).map(f=>{
     const raw = (f.properties && (f.properties.name || f.properties.judet || f.properties.JUDET || f.properties.NAME_1 || f.properties.shapeName)) || '';
     const nn = normName(String(raw));
     if (f.properties) f.properties.name = nn;
     return nn;
   });
-
   const byName = Object.fromEntries(rows.map(r=>[r.Judet_norm,r]));
 
-  // 2) extragem valori; calculăm zmin/zmax din date (ignorăm null/NaN)
+  // 2) valori + domeniu
   const z = locs.map(n => (byName[n] ? byName[n][m] : null));
   const valid = z.filter(v => typeof v==='number' && isFinite(v));
   const zmin = valid.length ? Math.min(...valid) : 0;
@@ -233,22 +232,15 @@ function drawMap(resetBBox){
 
   const text = locs.map(n => {
     const r=byName[n], v=(r? r[m] : null);
-    return r ? `${r.Judet} — ${ (v??0).toLocaleString('ro-RO',{maximumFractionDigits:3}) }` : 'Fără date';
+    return r ? `${r.Judet} — ${(v??0).toLocaleString('ro-RO',{maximumFractionDigits:3})}` : 'Fără date';
   });
 
-  // 3) mobile tweaks
+  // 3) setări mobile + colorbar (fără titlu)
   const isMobile = window.innerWidth <= 980;
-  const cbLen = isMobile ? 0.7 : 0.9;     // lungimea colorbar fixă
+  const cbLen = isMobile ? 0.7 : 0.9;
   const cbThick = isMobile ? 12 : 16;
 
-  // Colorbar fără titlu (nu mai influențează layoutul)
-  const colorbar = {
-    thickness: cbThick, len: cbLen,
-    x: 1.02, y: 0.5, xanchor:'left', yanchor:'middle',
-    outlinewidth: 0, tickfont:{size:isMobile?10:11, color:'#cbd5e1'}
-  };
-
-  // contur + strat principal
+  // 4) trasă de contur
   const outline = {
     type:'choropleth', geojson: geoData, locations: locs,
     z: locs.map(()=>0), showscale:false, featureidkey:'properties.name',
@@ -256,25 +248,39 @@ function drawMap(resetBBox){
     marker:{ line:{ width:1.2, color:'#0f172a' } }, opacity:1
   };
 
-  // ---- alb exact la 0 doar pentru Profit/ha: folosim zmid:0
+  // 5) trasă principală legată la un coloraxis
   const main = {
-    type:'choropleth', geojson: geoData, locations: locs,
-    z, zmin, zmax, ...(m==='Profit_ha'?{zmid:0}:{ }),
-    text, featureidkey:'properties.name',
-    colorscale: COLORSCALE_GWR,
+    type:'choropleth',
+    geojson: geoData,
+    locations: locs,
+    z, text,
+    featureidkey:'properties.name',
     marker:{ line:{ width:0.8, color:'#0b1020' } },
-    hoverinfo:'text', hoverlabel: isMobile ? {font:{size:10}} : {font:{size:12}},
-    colorbar: colorbar
+    hoverinfo:'text',
+    hoverlabel: isMobile ? {font:{size:10}} : {font:{size:12}},
+    coloraxis:'coloraxis'             // <-- important
   };
 
-  // 4) încadrăm robust pe locații
+  // 6) layout + coloraxis (cu cmid:0 doar pentru Profit/ha)
   const layout = {
     margin: isMobile ? {l:6,r:42,t:4,b:4} : {l:8,r:70,t:4,b:4},
     geo:{ visible:true, showframe:false, showcoastlines:false, bgcolor:'#0b1020',
-      projection:{type:'mercator'}, fitbounds:'locations' },
-    hovermode:'closest',
+          projection:{type:'mercator'}, fitbounds:'locations' },
     paper_bgcolor:'#0b1020', plot_bgcolor:'#0b1020',
-    uirevision:'keep'
+    hovermode:'closest',
+    uirevision:'keep',
+    coloraxis: {
+      colorscale: COLORSCALE_GWR,
+      cmin: zmin,
+      cmax: zmax,
+      // centrează ALB la 0 numai dacă domeniul trece prin 0 și indicatorul e Profit/ha
+      ...(m==='Profit_ha' && zmin < 0 && zmax > 0 ? { cmid: 0 } : {}),
+      colorbar: {
+        thickness: cbThick, len: cbLen,
+        x: 1.02, y: 0.5, xanchor:'left', yanchor:'middle',
+        outlinewidth: 0, tickfont:{size:isMobile?10:11, color:'#cbd5e1'}
+      }
+    }
   };
 
   // Pan DA, zoom NU
@@ -292,6 +298,7 @@ function drawMap(resetBBox){
     drawRankBar(); drawProfile();
   });
 }
+
 
 function drawRankBar(){
   if(!rows.length){ Plotly.purge('rankbar'); return; }
@@ -375,3 +382,4 @@ window.addEventListener('resize', ()=>{
 </script>
 </body>
 </html>
+
