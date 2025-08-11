@@ -4,8 +4,10 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Romsilva — Hartă pan (fără zoom) + Top & Profil</title>
-<!-- Plotly local din repo -->
+
+<!-- Plotly servit din repo (ai deja plotly-2.35.2.min.js în root) -->
 <script src="plotly-2.35.2.min.js"></script>
+
 <style>
   :root{--bg:#0b1020;--card:#0f172a;--ink:#e5e7eb;--muted:#9ca3af;--ring:#1f2937}
   *{box-sizing:border-box}
@@ -64,13 +66,18 @@
 </div>
 
 <script>
-// ---- URL-urile relative din repo (root)
+// ---------- Config: fișiere din root-ul repo-ului ----------
 const CSV_URL     = './Romsilva_dashboard_minimal.csv';
 const GEOJSON_URL = './ro_judete_poligon.json';
 
-// ---- Utils
-function normName(s){return String(s||"").normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[–—]/g,'-').replace(/\s+/g,' ').trim();}
-function recaseCounty(n){return n.split(/(\-)/).map(p=> p==='-'?'-':(p.charAt(0).toUpperCase()+p.slice(1).toLowerCase())).join('');}
+// ---------- Utils ----------
+function normName(s){
+  return String(s||"").normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+    .replace(/[–—]/g,'-').replace(/\s+/g,' ').trim();
+}
+function recaseCounty(n){
+  return n.split(/(\-)/).map(p=> p==='-'?'-':(p.charAt(0).toUpperCase()+p.slice(1).toLowerCase())).join('');
+}
 function extractCounty(ds){
   let s=String(ds||"").trim(); if(!s) return '';
   let n=s.normalize('NFD').replace(/[\u0300-\u036f]/g,'');
@@ -78,7 +85,8 @@ function extractCounty(ds){
   if(!n) n=s.normalize('NFD').replace(/[\u0300-\u036f]/g,'');
   n=recaseCounty(n.replace(/\s+/g,' ').trim());
   const fixes={'Bistrita':'Bistrita-Nasaud','Caras':'Caras-Severin','Satu mare':'Satu Mare'};
-  if(fixes[n]) n=fixes[n]; return n;
+  if(fixes[n]) n=fixes[n];
+  return n;
 }
 function parseNumSmart(v){
   if(v===null||v===undefined) return 0;
@@ -89,48 +97,73 @@ function parseNumSmart(v){
   else { s=s.replace(/,/g,''); }
   const n=Number(s); return isNaN(n)?0:n;
 }
-function detectDelimiter(sample){const c=(sample.match(/,/g)||[]).length,s=(sample.match(/;/g)||[]).length,t=(sample.match(/\t/g)||[]).length;return (s>=c&&s>=t)?';':(t>=c?'\t':',');}
+function detectDelimiter(sample){
+  const c=(sample.match(/,/g)||[]).length,s=(sample.match(/;/g)||[]).length,t=(sample.match(/\t/g)||[]).length;
+  return (s>=c&&s>=t)?';':(t>=c?'\t':',');
+}
 function parseCSVSmart(text){
   const first5=text.split(/\r?\n/).slice(0,5).join('\n'); const delim=detectDelimiter(first5);
   const rows=[]; let cur=[],cell='',inQ=false;
-  for(let i=0;i<text.length;i++){ const ch=text[i],nx=text[i+1];
+  for(let i=0;i<text.length;i++){
+    const ch=text[i],nx=text[i+1];
     if(inQ){ if(ch=='"'&&nx=='"'){cell+='"';i++;continue;} if(ch=='"'){inQ=false;continue;} cell+=ch; }
-    else{ if(ch=='"'){inQ=true;continue;} if(ch==delim){cur.push(cell);cell='';continue;} if(ch=='\n'){cur.push(cell);rows.push(cur);cur=[];cell='';continue;} if(ch=='\r'){continue;} cell+=ch; } }
+    else{ if(ch=='"'){inQ=true;continue;} if(ch==delim){cur.push(cell);cell='';continue;} if(ch=='\n'){cur.push(cell);rows.push(cur);cur=[];cell='';continue;} if(ch=='\r'){continue;} cell+=ch; }
+  }
   if(cell.length>0||cur.length>0){cur.push(cell);rows.push(cur);}
   const rawHeader=rows[0].map(h=>h.trim());
-  const normHeader=rawHeader.map(h=>{let x=h.normalize('NFD').replace(/[\u0300-\u036f]/g,''); x=x.replace(/_/g,' ').replace(/\s+/g,' ').trim().toLowerCase(); x=x.replace(/\s*\/\s*/g,'/'); return x;});
-  const canon={'directia silvica':'Directia Silvica','ds':'Directia Silvica','directia-silvica':'Directia Silvica','suprafata administrata':'Suprafata administrata','suprafata':'Suprafata administrata','profit/ha':'Profit/ha','profit ha':'Profit/ha','volum recoltat':'Volum recoltat','volum':'Volum recoltat','scor ds':'Scor_DS','scor_ds':'Scor_DS','scor':'Scor_DS'};
+  const normHeader=rawHeader.map(h=>{
+    let x=h.normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+    x=x.replace(/_/g,' ').replace(/\s+/g,' ').trim().toLowerCase();
+    x=x.replace(/\s*\/\s*/g,'/'); return x;
+  });
+  const canon={'directia silvica':'Directia Silvica','ds':'Directia Silvica','directia-silvica':'Directia Silvica',
+    'suprafata administrata':'Suprafata administrata','suprafata':'Suprafata administrata',
+    'profit/ha':'Profit/ha','profit ha':'Profit/ha',
+    'volum recoltat':'Volum recoltat','volum':'Volum recoltat',
+    'scor ds':'Scor_DS','scor_ds':'Scor_DS','scor':'Scor_DS'};
   const idx={}; for(let i=0;i<normHeader.length;i++){const h=normHeader[i]; if(canon[h] && idx[canon[h]]===undefined) idx[canon[h]]=i;}
   const req=['Directia Silvica','Suprafata administrata','Profit/ha','Volum recoltat','Scor_DS'];
   const miss=req.filter(k=>idx[k]===undefined); if(miss.length) throw new Error('Lipsesc coloane: '+miss.join(', '));
-  const out=[]; for(let r=1;r<rows.length;r++){const arr=rows[r]; if(!arr||arr.every(x=>String(x||'').trim()==='')) continue; const o={}; for(const k of req){const j=idx[k]; o[k]=arr[j]!==undefined?arr[j].trim():'';} out.push(o);} return out;
+  const out=[]; for(let r=1;r<rows.length;r++){
+    const arr=rows[r]; if(!arr||arr.every(x=>String(x||'').trim()==='')) continue;
+    const o={}; for(const k of req){const j=idx[k]; o[k]=arr[j]!==undefined?arr[j].trim():'';} out.push(o);
+  }
+  return out;
 }
 function quantizeGeoJSON(gj,decimals=3){
-  let minLon=999,maxLon=-999,minLat=999,maxLat=-999;
-  function consider(x,y){ if(x<minLon)minLon=x; if(x>maxLon)maxLon=x; if(y<minLat)minLat=y; if(y>maxLat)maxLat=y; return [+Number(x).toFixed(decimals),+Number(y).toFixed(decimals)]; }
-  function q(c){ if(Array.isArray(c)){ if(c.length&&Array.isArray(c[0])&&typeof c[0][0]==='number'){ return c.map(([x,y])=>consider(x,y)); } return c.map(q);} return c; }
-  (gj.features||[]).forEach(f=>{const p=f.properties||(f.properties={}); p.name=normName(p.name||p.judet||p.JUDET||p.shapeName||p.NAME_1||p.nume||p.denumire||''); if(f.geometry&&(f.geometry.type==='Polygon'||f.geometry.type==='MultiPolygon')) f.geometry.coordinates=q(f.geometry.coordinates);});
-  gj.__bbox={minLon,maxLon,minLat,maxLat}; return gj;
+  // nu ne bazăm pe bbox; folosim fitbounds în layout, dar curățăm numele
+  (gj.features||[]).forEach(f=>{
+    const p=f.properties||(f.properties={});
+    p.name=normName(p.name||p.judet||p.JUDET||p.NAME_1||p.shapeName||p.nume||p.denumire||'');
+  });
+  return gj;
 }
 
-// ---- State
+// ---------- State ----------
 let rows=[], geoData=null, selectedJudet=null;
 const GREEN_WHITE_RED=[[0,'#b91c1c'],[0.25,'#ef4444'],[0.5,'#ffffff'],[0.75,'#34d399'],[1,'#16a34a']];
 const metricSel=document.getElementById('metric'), debugBox=document.getElementById('debugBox');
 
-// ---- Auto-load din repo
+// ---------- Auto-load din repo ----------
 (async ()=>{
   try{
-    const [csvRes, geoRes] = await Promise.all([ fetch(CSV_URL,{cache:'no-store'}), fetch(GEOJSON_URL,{cache:'no-store'}) ]);
+    const [csvRes, geoRes] = await Promise.all([
+      fetch(CSV_URL,{cache:'no-store'}), fetch(GEOJSON_URL,{cache:'no-store'})
+    ]);
     const [csvText, geoText] = await Promise.all([ csvRes.text(), geoRes.text() ]);
     const raw = parseCSVSmart(csvText);
-    rows = raw.map(r=>{const ds=r['Directia Silvica'], j=extractCounty(ds); return {
-      Directia_Silvica: ds, Judet: recaseCounty(j), Judet_norm: normName(j),
-      Suprafata_administrata: parseNumSmart(r['Suprafata administrata']),
-      Profit_ha: parseNumSmart(r['Profit/ha']),
-      Volum_recoltat: parseNumSmart(r['Volum recoltat']),
-      Scor_DS: parseNumSmart(r['Scor_DS'])
-    };});
+    rows = raw.map(r=>{
+      const ds=r['Directia Silvica'], j=extractCounty(ds);
+      return {
+        Directia_Silvica: ds,
+        Judet: recaseCounty(j),
+        Judet_norm: normName(j),
+        Suprafata_administrata: parseNumSmart(r['Suprafata administrata']),
+        Profit_ha:           parseNumSmart(r['Profit/ha']),
+        Volum_recoltat:      parseNumSmart(r['Volum recoltat']),
+        Scor_DS:             parseNumSmart(r['Scor_DS'])
+      };
+    });
     geoData = quantizeGeoJSON(JSON.parse(geoText),3);
     drawAll(true);
     debugBox.textContent='Încărcat din repo.';
@@ -139,53 +172,91 @@ const metricSel=document.getElementById('metric'), debugBox=document.getElementB
   }
 })();
 
-// ---- Render
-function drawAll(resetBBox=false){ drawMap(resetBBox); drawRankBar(); drawProfile(); }
+// ---------- Render ----------
+function drawAll(resetBBox=false){ drawMap(resetBBox); drawRankBar(); drawProfile(); selfTest(); }
+
+function selfTest(){
+  if(!geoData||!rows.length){ return; }
+  const geoNames = new Set((geoData.features||[]).map(f => normName(String(f.properties?.name||''))));
+  const dataNames = new Set(rows.map(r => r.Judet_norm));
+  const missingInGeo = [...dataNames].filter(n => !geoNames.has(n));
+  const missingInData = [...geoNames].filter(n => !dataNames.has(n));
+  debugBox.innerHTML = `Potriviri: ${rows.length - missingInGeo.length}/${rows.length}`
+    + (missingInGeo.length? `<br>În CSV dar nu în GeoJSON: ${missingInGeo.slice(0,5).join(', ')}`:'')
+    + (missingInData.length? `<br>În GeoJSON dar fără date: ${missingInData.slice(0,5).join(', ')}`:'');
+}
 
 function drawMap(resetBBox){
   if(!geoData||!rows.length){ Plotly.purge('map'); return; }
-  const m=metricSel.value;
-  const byName=Object.fromEntries(rows.map(r=>[r.Judet_norm,r]));
-  const locs=(geoData.features||[]).map(f=>normName(String(f.properties?.name||'')));
-  const z=locs.map(n=> byName[n]?.[m] ?? null);
-  const text=locs.map(n=>{ const r=byName[n]; return r?`${r.Judet} — ${(r[m]??'').toLocaleString('ro-RO')}`:'Fără date'; });
+  const m = metricSel.value;
 
-  const outline={ type:'choropleth', geojson:geoData, locations:locs, z:locs.map(()=>0), showscale:false,
-    featureidkey:'properties.name', hoverinfo:'skip',
-    marker:{line:{width:0.6,color:'#1f2937'}}, colorscale:[[0,'#111827'],[1,'#111827']], opacity:0.6 };
+  // 1) normalizăm identic și suprascriem properties.name
+  const locs = (geoData.features||[]).map(f=>{
+    const raw = (f.properties && (f.properties.name || f.properties.judet || f.properties.JUDET || f.properties.NAME_1)) || '';
+    const nn = normName(String(raw));
+    if (f.properties) f.properties.name = nn;
+    return nn;
+  });
+  const byName = Object.fromEntries(rows.map(r=>[r.Judet_norm,r]));
 
-  const main={ type:'choropleth', geojson:geoData, locations:locs, z, text,
-    featureidkey:'properties.name', colorscale:GREEN_WHITE_RED,
-    marker:{line:{width:0.5,color:'#0b1020'}}, hoverinfo:'text',
-    colorbar:{title:m.replace('_',' '), thickness:16, len:0.9, x:1.02, y:0.5, xpad:6, outlinewidth:0} };
+  // 2) valori & hover
+  const z = locs.map(n => (byName[n] ? byName[n][m] : null));
+  const text = locs.map(n => {
+    const r=byName[n];
+    return r ? `${r.Judet} — ${(r[m]??'').toLocaleString('ro-RO')}` : 'Fără date';
+  });
 
-  const bb=geoData.__bbox||{minLon:20,maxLon:30,minLat:43,maxLat:49}, padLon=0.6, padLat=0.6;
+  // 3) contur + strat principal
+  const outline = {
+    type:'choropleth',
+    geojson: geoData,
+    locations: locs,
+    z: locs.map(()=>0),
+    showscale:false,
+    featureidkey:'properties.name',
+    hoverinfo:'skip',
+    colorscale:[[0,'#0b1020'],[1,'#0b1020']],
+    marker:{ line:{ width:1.2, color:'#0f172a' } },
+    opacity:1
+  };
+  const main = {
+    type:'choropleth',
+    geojson: geoData,
+    locations: locs,
+    z, text,
+    featureidkey:'properties.name',
+    colorscale: GREEN_WHITE_RED,
+    marker:{ line:{ width:0.8, color:'#0b1020' } },
+    hoverinfo:'text',
+    zauto:true,
+    colorbar:{ title:m.replace('_',' '), thickness:16, len:0.9, x:1.02, y:0.5, xpad:6, outlinewidth:0 }
+  };
 
-  const layout={ margin:{l:8,r:70,t:4,b:4},
-    geo:{ visible:true, showframe:false, showcoastlines:false, bgcolor:'#0b1020',
-          projection:{type:'mercator'},
-          lonaxis:{range:[bb.minLon-padLon, bb.maxLon+padLon]},
-          lataxis:{range:[bb.minLat-padLat, bb.maxLat+padLat]} },
+  // 4) încadrăm cu fitbounds pe locații (robust)
+  const layout = {
+    margin:{l:8,r:70,t:4,b:4},
+    geo:{
+      visible:true, showframe:false, showcoastlines:false, bgcolor:'#0b1020',
+      projection:{type:'mercator'},
+      fitbounds:'locations'   // <-- important
+    },
     hovermode:'closest',
     paper_bgcolor:'#0b1020', plot_bgcolor:'#0b1020',
     uirevision:'keep'
   };
-  const cfg={ responsive:true, displayModeBar:false, scrollZoom:false, doubleClick:false };
+
+  // Pan DA, zoom NU
+  const cfg = { responsive:true, displayModeBar:false, scrollZoom:false, doubleClick:false };
 
   if(!drawMap._inited || resetBBox){
     Plotly.newPlot('map',[outline,main],layout,cfg).then(()=>{ drawMap._inited=true; });
   }else{
-    const gd=document.getElementById('map'); const gl=gd? gd._fullLayout?.geo : null;
-    if(gl?.lonaxis?.range && gl?.lataxis?.range){
-      layout.geo.lonaxis.range = gl.lonaxis.range.slice();
-      layout.geo.lataxis.range = gl.lataxis.range.slice();
-    }
     Plotly.react('map',[outline,main],layout,cfg);
   }
 
   document.getElementById('map').on('plotly_click',ev=>{
-    const loc=ev.points?.[0]?.location; if(!loc) return;
-    const rec=rows.find(r=>r.Judet_norm===loc); selectedJudet=rec?rec.Judet:null;
+    const loc = ev.points?.[0]?.location; if(!loc) return;
+    const rec = rows.find(r=>r.Judet_norm===loc); selectedJudet = rec ? rec.Judet : null;
     drawRankBar(); drawProfile();
   });
 }
@@ -232,7 +303,7 @@ function drawProfile(){
   }, {responsive:true});
 }
 
-// Export PNG
+// ---------- Export PNG ----------
 function exportPng(id,name){
   Plotly.downloadImage(document.getElementById(id), {format:'png', width:1200, height:800, filename:name})
     .catch(e=>alert('Export PNG: '+e.message));
@@ -241,9 +312,10 @@ document.getElementById('expMap').addEventListener('click',()=>exportPng('map','
 document.getElementById('expRank').addEventListener('click',()=>exportPng('rankbar','top_judete'));
 document.getElementById('expProfile').addEventListener('click',()=>exportPng('profile','profil_judet'));
 
-// UI
+// ---------- UI ----------
 document.getElementById('resetSel').addEventListener('click',()=>{ selectedJudet=null; drawRankBar(); drawProfile(); drawMap(true); });
 metricSel.addEventListener('change',()=>{ selectedJudet=null; drawAll(false); });
 </script>
 </body>
 </html>
+
