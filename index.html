@@ -22,20 +22,19 @@
   .quick .qbtn.active{outline:2px solid #6366f1}
   .layout{display:grid;grid-template-columns:1fr 1fr;gap:18px}
   .card{background:var(--card);border:1px solid #111827;border-radius:16px;box-shadow:0 10px 30px rgba(0,0,0,.35);padding:12px}
-  .panel{height:72vh} /* desktop: hartă mare */
+  .panel{height:72vh}
   .right{display:grid;grid-template-rows:1fr 1fr;gap:18px}
   .label{font-size:13px;color:var(--muted)}
   .debug{font-size:13px;color:#cbd5e1}
   .export-row{margin-top:8px; display:flex; gap:8px; flex-wrap:wrap}
 
-  /* ====== Mobile: sub 980px ====== */
   @media (max-width: 980px){
     h1{font-size:18px}
     .container{padding:12px}
-    .layout{grid-template-columns:1fr}     /* o coloană */
-    .panel{height:55vh}                    /* harta ~jumătate ecran */
+    .layout{grid-template-columns:1fr}
+    .panel{height:55vh}
     .right{grid-template-rows:auto auto}
-    #rankbar, #profile{height:46vh}        /* grafice ~jumătate ecran fiecare */
+    #rankbar, #profile{height:46vh}
     .controls{gap:8px}
     select,button{padding:8px 10px}
   }
@@ -90,7 +89,7 @@
 </div>
 
 <script>
-// ---------- Config: fișiere din root ----------
+// ---------- Config ----------
 const CSV_URL     = './Romsilva_dashboard_minimal.csv';
 const GEOJSON_URL = './ro_judete_poligon.geojson';
 
@@ -161,7 +160,7 @@ function parseCSVSmart(text){
 let rows=[], geoData=null, selectedJudet=null;
 const metricSel=document.getElementById('metric'), debugBox=document.getElementById('debugBox');
 
-// === prescurtări județe pentru axa Y din „Top județe”
+// prescurtări județe pt. Top județe
 const J_ABBR = {
   'Alba':'AB','Arad':'AR','Arges':'AG','Bacau':'BC','Bihor':'BH','Bistrita-Nasaud':'BN',
   'Botosani':'BT','Brasov':'BV','Braila':'BR','Buzau':'BZ','Calarasi':'CL','Caras-Severin':'CS',
@@ -195,7 +194,6 @@ const J_ABBR = {
     });
 
     geoData = JSON.parse(geoText);
-    // suprascriem properties.name normalizat (cheia de potrivire)
     (geoData.features||[]).forEach(f=>{
       const p=f.properties||(f.properties={});
       p.name = normName(p.name||p.judet||p.JUDET||p.NAME_1||p.shapeName||p.nume||p.denumire||'');
@@ -226,7 +224,6 @@ function drawMap(resetBBox){
   if(!geoData||!rows.length){ Plotly.purge('map'); return; }
   const m = metricSel.value;
 
-  // 1) normalizăm numele pt. potrivire
   const locs = (geoData.features||[]).map(f=>{
     const raw = (f.properties && (f.properties.name || f.properties.judet || f.properties.JUDET || f.properties.NAME_1 || f.properties.shapeName)) || '';
     const nn = normName(String(raw));
@@ -235,20 +232,15 @@ function drawMap(resetBBox){
   });
   const byName = Object.fromEntries(rows.map(r=>[r.Judet_norm,r]));
 
-  // 2) valori + domeniu
   const z = locs.map(n => (byName[n] ? byName[n][m] : null));
   const valid = z.filter(v => typeof v==='number' && isFinite(v));
   const zminRaw = valid.length ? Math.min(...valid) : 0;
   const zmaxRaw = valid.length ? Math.max(...valid) : 1;
 
-  // Domeniu pentru colorare:
-  // - pentru Profit/ha -> domeniu simetric [-M, +M] ca să fie ALB la 0
-  // - pentru restul -> domeniu real [min, max]
   let cmin = zminRaw, cmax = zmaxRaw;
   if (m === 'Profit_ha') {
     const M = Math.max(Math.abs(zminRaw), Math.abs(zmaxRaw)) || 1;
-    cmin = -M;
-    cmax = +M;
+    cmin = -M; cmax = +M;
   }
 
   const text = locs.map(n => {
@@ -256,12 +248,10 @@ function drawMap(resetBBox){
     return r ? `${r.Judet} — ${(v??0).toLocaleString('ro-RO',{maximumFractionDigits:3})}` : 'Fără date';
   });
 
-  // 3) mobile tweaks
   const isMobile = window.innerWidth <= 980;
   const cbLen = isMobile ? 0.7 : 0.9;
   const cbThick = isMobile ? 12 : 16;
 
-  // 4) contur
   const outline = {
     type:'choropleth', geojson: geoData, locations: locs,
     z: locs.map(()=>0), showscale:false, featureidkey:'properties.name',
@@ -269,7 +259,6 @@ function drawMap(resetBBox){
     marker:{ line:{ width:1.2, color:'#0f172a' } }, opacity:1
   };
 
-  // 5) trasă principală cu coloraxis
   const main = {
     type:'choropleth',
     geojson: geoData,
@@ -282,7 +271,6 @@ function drawMap(resetBBox){
     coloraxis:'coloraxis'
   };
 
-  // 6) layout + coloraxis (fără titlu; domeniu cmin/cmax setat mai sus)
   const layout = {
     margin: isMobile ? {l:6,r:42,t:4,b:4} : {l:8,r:70,t:4,b:4},
     geo:{ visible:true, showframe:false, showcoastlines:false, bgcolor:'#0b1020',
@@ -292,7 +280,7 @@ function drawMap(resetBBox){
     uirevision:'keep',
     coloraxis: {
       colorscale: COLORSCALE_GWR,
-      cmin, cmax,                 // <- simetric pt Profit/ha, real pt ceilalți
+      cmin, cmax,
       colorbar: {
         thickness: cbThick, len: cbLen,
         x: 1.02, y: 0.5, xanchor:'left', yanchor:'middle',
@@ -316,65 +304,79 @@ function drawMap(resetBBox){
   });
 }
 
-// ===== MODIFICAT: text alb + toate județele (prescurtări) în „Top județe”
+/* ====== GRAFIC 2 (Top județe): x = prescurtări, y = valoare, sort desc, titlu alb ====== */
 function drawRankBar(){
   if(!rows.length){ Plotly.purge('rankbar'); return; }
-  const m=metricSel.value;
+  const m = metricSel.value;
+
+  // sort desc după valoare
   const sorted=[...rows].sort((a,b)=>(b[m]??-Infinity)-(a[m]??-Infinity));
 
-  const yFull  = sorted.map(r=>r.Judet);
-  const yAbbr  = yFull.map(n => J_ABBR[n] || n);
-  const xVals  = sorted.map(r=>r[m]);
-  const txtAnn = sorted.map(r=>(r[m]??0).toLocaleString('ro-RO',{maximumFractionDigits:3}));
+  const xAbbr = sorted.map(r => J_ABBR[r.Judet] || r.Judet); // prescurtări pe X
+  const yVals = sorted.map(r => r[m]);                        // valori pe Y
+  const txtAnn = sorted.map(r => (r[m]??0).toLocaleString('ro-RO',{maximumFractionDigits:3}));
+  const xFull = sorted.map(r => r.Judet);                    // nume întregi pt hover
 
   Plotly.react('rankbar',[{
-    type:'bar', orientation:'h',
-    y: yAbbr,
-    x: xVals,
+    type:'bar',
+    x: xAbbr,
+    y: yVals,
     text: txtAnn,
     textposition:'auto',
-    textfont:{color:'#fff', size:11},   // valori pe bare — ALB
+    textfont:{color:'#fff', size:11},
     insidetextfont:{color:'#fff'},
     outsidetextfont:{color:'#fff'},
-    hovertext: yFull.map((n,i)=>`${n}: ${txtAnn[i]}`),
+    hovertext: xFull.map((n,i)=>`${n}: ${txtAnn[i]}`),
     hoverinfo:'text',
-    marker:{ color:sorted.map(r=>(selectedJudet&&r.Judet===selectedJudet)?'#f59e0b':'#6366f1') }
+    marker:{ color: sorted.map(r => (selectedJudet && r.Judet===selectedJudet) ? '#f59e0b' : '#6366f1') }
   }],{
-    margin:{l:140,r:20,t:10,b:30},
-    xaxis:{ title:m.replace('_',' '), tickfont:{color:'#fff',size:11}, automargin:true },
-    yaxis:{ tickfont:{color:'#fff',size:11}, tickmode:'array', tickvals:yAbbr, ticktext:yAbbr, automargin:true },
+    title: { text: `Top județe — ${m.replace('_',' ')}`, font:{color:'#fff'} },
+    margin:{l:60,r:20,t:40,b:80},
+    xaxis:{
+      tickfont:{color:'#fff',size:11},
+      tickangle:-45,
+      automargin:true
+    },
+    yaxis:{
+      title: m.replace('_',' '),
+      tickfont:{color:'#fff',size:11},
+      automargin:true
+    },
     paper_bgcolor:'#0f172a', plot_bgcolor:'#0f172a',
     uirevision:'keep'
   }, {responsive:true});
 
   document.getElementById('rankbar').on('plotly_click',ev=>{
     const idx = ev.points?.[0]?.pointIndex;
-    const jd = yFull[idx];
+    const jd = xFull[idx];
     if(!jd) return;
-    selectedJudet=jd; drawProfile(); drawMap(false);
+    selectedJudet = jd;
+    drawProfile();
+    drawMap(false);
   });
 }
 
-// ===== MODIFICAT: text alb și axe albe în „Profil județ”
+/* ====== GRAFIC 3 (Profil județ): titlu alb + text alb ====== */
 function drawProfile(){
   if(!rows.length){ Plotly.purge('profile'); return; }
   const r=selectedJudet?rows.find(x=>x.Judet===selectedJudet):null;
   const title=r?`Profil indicatori — ${r.Judet}`:'Profil indicatori — selectează un județ';
   const x=['Suprafață administrată','Profit / ha','Volum recoltat','Scor DS'];
   const y=r?[r.Suprafata_administrata,r.Profit_ha,r.Volum_recoltat,r.Scor_DS]:[0,0,0,0];
+
   Plotly.react('profile',[{
     type:'bar', x, y,
     text:y.map(v=>(v??0).toLocaleString('ro-RO',{maximumFractionDigits:3})),
     textposition:'auto',
-    textfont:{color:'#fff', size:12},   // valori pe bare — ALB
+    textfont:{color:'#fff', size:12},
     insidetextfont:{color:'#fff'},
     outsidetextfont:{color:'#fff'},
     marker:{color:['#22c55e','#f59e0b','#22d3ee','#a78bfa']}
   }],{
-    title,
-    xaxis:{ tickfont:{color:'#fff',size:12} },   // axă X albă
-    yaxis:{ title:'Valoare', tickfont:{color:'#fff',size:12} }, // axă Y albă
-    margin:{l:60,r:20,t:40,b:60},
+    title: { text: title, font:{color:'#fff'} },
+    xaxis:{ tickfont:{color:'#fff',size:12} },
+    yaxis:{ title:'Valoare', tickfont:{color:'#fff',size:12} },
+    margin:{l:60,r:20,t:50,b:60},
     paper_bgcolor:'#0f172a', plot_bgcolor:'#0f172a',
     uirevision:'keep'
   }, {responsive:true});
@@ -408,7 +410,6 @@ function syncQuick(){
     b.classList.toggle('active', b.getAttribute('data-m')===m);
   });
 }
-// inițial
 syncQuick();
 
 // Redesenare la rotație/resize pe mobil (debounce)
@@ -421,7 +422,7 @@ window.addEventListener('resize', ()=>{
 </body>
 </html>
 
-</html>
+
 
 
 
